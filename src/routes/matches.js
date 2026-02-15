@@ -25,14 +25,6 @@ matchRouter.get("/", async (req, res) => {
     }
     catch (e) {
         console.error("[Database Error] Failed to list matches:", e.message);
-        if (process.env.NODE_ENV === 'development') {
-            const mockData = [
-                { id: 1, sport: 'Soccer', homeTeam: 'Mock XI', awayTeam: 'Test United', status: 'live', homeScore: 2, awayScore: 1 },
-                { id: 2, sport: 'Basketball', homeTeam: 'Unit Stars', awayTeam: 'Code City', status: 'scheduled', homeScore: 0, awayScore: 0 }
-            ];
-            console.log("[Fallback] Serving mock data for testing.");
-            return res.json({ data: mockData, note: "Serving mock data due to DB error." });
-        }
         res.status(500).json({ error: 'Failed to list matches' });
     }
 });
@@ -41,35 +33,35 @@ matchRouter.post("/", async (req, res) => {
     const parsed = createMatchSchema.safeParse(req.body);
 
     if (!parsed.success) {
-            return res.status(400).json({ error: 'Invalid Payload.', details: parsed.error.issues });
-        }
+        return res.status(400).json({ error: 'Invalid Payload.', details: parsed.error.issues });
+    }
 
-        const { startTime, endTime, homeScore, awayScore } = parsed.data;
+    const { startTime, endTime, homeScore, awayScore } = parsed.data;
 
-        const status = getMatchStatus(new Date(startTime), new Date(endTime)) || MATCH_STATUS.SCHEDULED;
+    const status = getMatchStatus(new Date(startTime), new Date(endTime)) || MATCH_STATUS.SCHEDULED;
+
+    try {
+        const [event] = await db.insert(matches).values({
+            ...parsed.data,
+            startTime: new Date(startTime),
+            endTime: new Date(endTime),
+            homeScore: homeScore ?? 0,
+            awayScore: awayScore ?? 0,
+            status,
+        }).returning();
 
         try {
-            const [event] = await db.insert(matches).values({
-                ...parsed.data,
-                startTime: new Date(startTime),
-                endTime: new Date(endTime),
-                homeScore: homeScore ?? 0,
-                awayScore: awayScore ?? 0,
-                status,
-            }).returning();
-
-            try {
-                if (res.app.locals.broadcastMatchCreated) {
-                    res.app.locals.broadcastMatchCreated(event);
-                }
-            } catch (broadcastError) {
-                console.error("Failed to broadcast match creation:", broadcastError);
+            if (res.app.locals.broadcastMatchCreated) {
+                res.app.locals.broadcastMatchCreated(event);
             }
-
-            res.status(201).json({ data: event });
-        } catch (e) {
-            console.error(e);
-            res.status(500).json({ error: 'Failed to create match' });
+        } catch (broadcastError) {
+            console.error("Failed to broadcast match creation:", broadcastError);
         }
-    });
+
+        res.status(201).json({ data: event });
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Failed to create match' });
+    }
+});
 
