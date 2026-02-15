@@ -9,9 +9,11 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
     connectionString: process.env.DATABASE_URL,
-    ssl: {
-        rejectUnauthorized: false
-    },
+    ssl: process.env.DATABASE_SSL_REJECT_UNAUTHORIZED === 'false'
+        ? { rejectUnauthorized: false }
+        : process.env.DATABASE_URL?.startsWith('postgres')
+            ? { rejectUnauthorized: true }
+            : undefined,
     max: 20,
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 10000, // Increased timeout
